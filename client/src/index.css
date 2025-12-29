@@ -1,0 +1,239 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-200 antialiased;
+    background-image:
+      radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.08), transparent 25%),
+      radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.08), transparent 25%);
+    background-attachment: fixed;
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-slate-900/40 backdrop-blur-md border border-slate-700/50 shadow-xl;
+  }
+
+  .glass-panel {
+    @apply bg-slate-800/20 backdrop-blur-sm border border-slate-700/30;
+  }
+
+  .text-glow {
+    text-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-slate-950;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-700 rounded-full hover:bg-slate-600 transition;
+}
+
+/* Force hide Chrono toolbar and controls - Aggressive Strategy */
+#evidex-timeline-wrapper .chrono-controls,
+#evidex-timeline-wrapper .chrono-icons,
+#evidex-timeline-wrapper [class*="controls"],
+#evidex-timeline-wrapper [class*="toolbar"],
+#evidex-timeline-wrapper header,
+#evidex-timeline-wrapper nav,
+/* Target the unstyled text elements seen in screenshot */
+#evidex-timeline-wrapper>div>div:first-child:not([class*="timeline"]),
+/* Hide specific specific Aria labels if they exist */
+[aria-label="Search Timeline"],
+[aria-label="change layout"],
+[aria-label="change density"],
+/* Hide unrelated buttons that might be leaking at the top */
+#evidex-timeline-wrapper button[aria-label],
+#evidex-timeline-wrapper input {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  width: 0 !important;
+  overflow: hidden !important;
+  position: absolute !important;
+  pointer-events: none !important;
+  z-index: -9999 !important;
+}
+
+/* Ensure the main timeline container fills the space */
+#evidex-timeline-wrapper>div {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+/* Hide specific text labels that might leak out */
+aside {
+  display: none !important;
+}
+
+/* 
+   PDF EXPORT "SAFE MODE"
+   Scopes overrides to .pdf-export-mode to avoid polluting global app.
+   Forces all colors to HEX/RGB for compatibility with html2canvas.
+*/
+
+/* 1. NUCLEAR OPTION: Reset everything in the export scope to safe defaults */
+.pdf-export-mode,
+.pdf-export-mode * {
+  /* Force fallback to standard color space */
+  color: #e2e8f0 !important;
+  border-color: #334155 !important;
+  outline-color: #334155 !important;
+  text-decoration-color: #e2e8f0 !important;
+  fill: #e2e8f0 !important;
+  stroke: #e2e8f0 !important;
+
+  /* Disable complex rendering that might trigger color parsing issues */
+  box-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+
+  /* Gradients often generate oklab in v4, kill them by default */
+  background-image: none !important;
+}
+
+/* 2. RESTORE: Re-apply specific colors with HEX equivalents */
+
+/* Backgrounds */
+.pdf-export-mode .bg-slate-950 {
+  background-color: #020617 !important;
+}
+
+.pdf-export-mode .bg-slate-900 {
+  background-color: #0f172a !important;
+}
+
+.pdf-export-mode .bg-slate-800 {
+  background-color: #1e293b !important;
+}
+
+.pdf-export-mode .bg-slate-700 {
+  background-color: #334155 !important;
+}
+
+.pdf-export-mode .bg-cyan-400 {
+  background-color: #22d3ee !important;
+}
+
+.pdf-export-mode .bg-cyan-500 {
+  background-color: #06b6d4 !important;
+}
+
+.pdf-export-mode .bg-cyan-900 {
+  background-color: #164e63 !important;
+}
+
+.pdf-export-mode .bg-blue-900 {
+  background-color: #1e3a8a !important;
+}
+
+.pdf-export-mode .bg-purple-900 {
+  background-color: #581c87 !important;
+}
+
+/* Opacity Backgrounds (Simulated/Hardcoded) */
+.pdf-export-mode .bg-slate-900\/50,
+.pdf-export-mode .bg-slate-900\/40,
+.pdf-export-mode .glass-card {
+  background-color: #0f172a !important;
+  /* Fallback to solid for safety */
+  border: 1px solid #334155 !important;
+}
+
+.pdf-export-mode .bg-slate-900\/80 {
+  background-color: #0f172a !important;
+}
+
+.pdf-export-mode .bg-slate-900\/90 {
+  background-color: #0f172a !important;
+}
+
+.pdf-export-mode .bg-slate-950\/50 {
+  background-color: #020617 !important;
+}
+
+.pdf-export-mode .bg-slate-800\/30,
+.pdf-export-mode .bg-slate-800\/20,
+.pdf-export-mode .glass-panel {
+  background-color: #1e293b !important;
+  border: 1px solid #334155 !important;
+}
+
+/* Text Colors */
+.pdf-export-mode .text-slate-200 {
+  color: #e2e8f0 !important;
+}
+
+.pdf-export-mode .text-slate-300 {
+  color: #cbd5e1 !important;
+}
+
+.pdf-export-mode .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.pdf-export-mode .text-slate-500 {
+  color: #64748b !important;
+}
+
+.pdf-export-mode .text-cyan-400 {
+  color: #22d3ee !important;
+}
+
+.pdf-export-mode .text-cyan-500 {
+  color: #06b6d4 !important;
+}
+
+.pdf-export-mode .text-blue-400 {
+  color: #60a5fa !important;
+}
+
+.pdf-export-mode .text-purple-400 {
+  color: #c084fc !important;
+}
+
+.pdf-export-mode .text-white {
+  color: #ffffff !important;
+}
+
+/* Borders */
+.pdf-export-mode .border-slate-700 {
+  border-color: #334155 !important;
+}
+
+.pdf-export-mode .border-slate-800 {
+  border-color: #1e293b !important;
+}
+
+.pdf-export-mode .border-cyan-500\/50 {
+  border-color: #06b6d4 !important;
+}
+
+.pdf-export-mode .border-cyan-900\/50 {
+  border-color: #164e63 !important;
+}
+
+/* SVG/Icon Fixes */
+.pdf-export-mode svg {
+  color: inherit !important;
+}
+
+/* Cytoscape / Canvas Handling */
+.pdf-export-mode canvas {
+  /* Ensure canvas itself doesn't have weird bg */
+  background-color: transparent !important;
+}
