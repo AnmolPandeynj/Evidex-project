@@ -43,7 +43,9 @@ const startServer = async () => {
             console.warn("WARNING: MONGO_URI is missing in .env");
         } else {
             // Basic mongo connection test
-            const client = new MongoClient(process.env.MONGO_URI);
+            const client = new MongoClient(process.env.MONGO_URI, {
+                tlsInsecure: true // Bypass SSL verification for development to avoid ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR
+            });
             await client.connect();
             console.log("Connected to MongoDB");
         }
@@ -57,4 +59,6 @@ const startServer = async () => {
     });
 };
 
-startServer();
+startServer().catch(err => {
+    console.error("Fatal server error:", err);
+});

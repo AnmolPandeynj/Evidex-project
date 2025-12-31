@@ -55,12 +55,26 @@ const timelineSchema = {
                 detailed: { type: SchemaType.STRING }
             },
             required: ["short"]
+        },
+        verdict: {
+            type: SchemaType.OBJECT,
+            properties: {
+                title: { type: SchemaType.STRING, description: "Short, punchy title for the conclusion (e.g. 'Evidence Confirmed', 'Anomalies Detected')" },
+                description: { type: SchemaType.STRING, description: "High-level conclusion based on context and evidence." },
+                findings: {
+                    type: SchemaType.ARRAY,
+                    items: { type: SchemaType.STRING },
+                    description: "3-5 key bullet points summarizing the findings"
+                },
+                recommendation: { type: SchemaType.STRING, description: "Actionable suggestion for the investigator" }
+            },
+            required: ["title", "description", "findings", "recommendation"]
         }
     },
-    required: ["events", "relations", "summary"]
+    required: ["events", "relations", "summary", "verdict"]
 } as any; // Cast to any to bypass strict Schema typing issues temporarily, or explicit ResponseSchema
 
-export const processEvidence = async (evidenceItems: any[]) => {
+export const processEvidence = async (evidenceItems: any[], context?: string) => {
     // Separate heavy file data from metadata for the prompt
     const fileParts: any[] = [];
     const metadataItems = evidenceItems.map(item => {
@@ -84,12 +98,23 @@ export const processEvidence = async (evidenceItems: any[]) => {
     Evidence Metadata:
     ${JSON.stringify(metadataItems, null, 2)}
     
+    ${context ? `USER PROVIDED CONTEXT / INVESTIGATION HINT:
+    "${context}"
+    Use this context to guide your analysis. If the user asks for specific details (e.g. "look for X"), prioritize those in your findings.
+    ` : ''}
+
     Output a JSON object satisfying the schema.
     Infer timestamps from OCR text (clocks, dates), EXIF data, or context.
     Assign confidence scores.
-    Assign confidence scores.
     Link events if they are related (chain of custody).
-    CRITICAL: For every relationship in the "relations" array, you MUST provide a clear "explanation" string satisfying the schema, describing WHY these two events are connected.`;
+    CRITICAL: For every relationship in the "relations" array, you MUST provide a clear "explanation" string satisfying the schema, describing WHY these two events are connected.
+    
+    VERDICT SECTION:
+    Based on the ${context ? 'provided context and ' : ''}evidence, provide a "Final Verdict". 
+    - Title should be professional and definitive.
+    - Findings should be distinct, factual points.
+    - Recommendation should be a clear next step for the investigator.
+    `;
 
     console.log("--------------- GEMINI API CALL START ---------------");
     console.log(`Using Model: ${model.model}`);

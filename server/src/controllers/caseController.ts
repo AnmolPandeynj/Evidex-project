@@ -6,10 +6,15 @@ import { processEvidence } from '../services/aiService';
 
 let db: any;
 if (process.env.MONGO_URI) {
-    new MongoClient(process.env.MONGO_URI).connect().then(client => {
-        db = client.db("evidex");
-        console.log("Controller connected to DB");
-    });
+    new MongoClient(process.env.MONGO_URI, { tlsInsecure: true }).connect()
+        .then(client => {
+            db = client.db("evidex");
+            console.log("Controller connected to DB");
+        })
+        .catch(err => {
+            console.error("Controller failed to connect to DB:", err);
+            // Don't crash, just log. APIs using 'db' will likely fail 500 if called.
+        });
 }
 
 export const syncUser = async (req: Request, res: Response) => {
@@ -126,8 +131,15 @@ export const createCase = async (req: Request, res: Response) => {
         console.log("Calling Gemini...");
         let aiResult: any;
 
+        // Extract context if available
+        const caseContext = clientMetadata.case_configuration?.context;
+
+        if (caseContext) {
+            console.log(`[AI] Including user context: "${caseContext.substring(0, 50)}..."`);
+        }
+
         try {
-            aiResult = await processEvidence(evidenceItems);
+            aiResult = await processEvidence(evidenceItems, caseContext);
         } catch (error) {
             console.error("AI Analysis failed, switching to Deterministic Fallback:", error);
             aiResult = generateFallbackTimeline(uploadedFiles);

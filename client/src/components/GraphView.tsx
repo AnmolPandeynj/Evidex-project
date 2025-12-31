@@ -25,11 +25,61 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(({ events, 
     useImperativeHandle(ref, () => ({
         getGraphImage: () => {
             if (!cyRef.current) return null;
-            return cyRef.current.png({
+
+            // 1. Save original styles (conceptually, we just know what they are, but let's be robust)
+            // Actually, we can just apply a new stylesheet or bypass current style
+            // Simplest way: batch update style for export
+
+            const cy = cyRef.current;
+
+            // Switch to Dark Text for White Paper
+            cy.batch(() => {
+                cy.style()
+                    .selector('node')
+                    .style({
+                        'color': '#1e293b', // Slate 800 (Dark)
+                        'border-color': '#0e7490' // Cyan 700 (Darker border)
+                    })
+                    .selector('edge')
+                    .style({
+                        'color': '#475569', // Slate 600 (Professional dark grey)
+                        'line-color': '#cbd5e1', // Slate 300 (Subtle connection lines)
+                        'target-arrow-color': '#cbd5e1',
+                        'text-background-color': '#ffffff', // White background for label
+                        'text-background-opacity': 1, // Ensure it covers the line
+                        'text-background-padding': '2px' // tighter padding
+                    })
+                    .update();
+            });
+
+            // 2. Generate Image
+            const png = cy.png({
                 full: true,
                 scale: 2,
                 bg: '#ffffff' // Force white background for PDF
             });
+
+            // 3. Revert Styles (Dark Mode)
+            cy.batch(() => {
+                cy.style()
+                    .selector('node')
+                    .style({
+                        'color': '#cbd5e1', // Back to Slate 300
+                        'border-color': '#0891b2' // Back to Cyan 600
+                    })
+                    .selector('edge')
+                    .style({
+                        'color': '#94a3b8', // Back to Slate 400
+                        'line-color': '#334155', // Back to Slate 700
+                        'target-arrow-color': '#334155',
+                        'text-background-color': '#0f172a', // Back to Dark Slate
+                        'text-background-opacity': 1,
+                        'text-background-padding': '3px'
+                    })
+                    .update();
+            });
+
+            return png;
         }
     }));
 

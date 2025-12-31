@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import exifr from 'exifr';
 import Tesseract from 'tesseract.js';
-import { Upload, CheckCircle, Loader2, Image as ImageIcon, FileType, X } from 'lucide-react';
+import { Upload, CheckCircle, Loader2, Image as ImageIcon, FileType, X, Settings2, ChevronUp, ChevronDown } from 'lucide-react';
 import clsx from 'clsx';
 
 interface FileUploadProps {
@@ -12,6 +12,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
     const [files, setFiles] = useState<File[]>([]);
     const [processing, setProcessing] = useState(false);
     const [status, setStatus] = useState<string>('');
+    const [showConfig, setShowConfig] = useState(false);
+    const [caseContext, setCaseContext] = useState('');
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
     const handleDrop = useCallback(async (e: React.DragEvent) => {
@@ -60,6 +62,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
                 }
                 metadataMap[file.name] = meta;
             }
+
+            // Inject Global Configuration into metadata (or as valid top level keys depending on backend structure)
+            // Storing it in a special key 'case_configuration' which the backend can parse
+            metadataMap['case_configuration'] = {
+                context: caseContext
+            };
+
             onUploadComplete(files, metadataMap);
         } catch (error) {
             console.error(error);
@@ -70,7 +79,39 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete }) => {
     };
 
     return (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-2xl">
+        <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-2xl transition-all duration-300">
+            {/* Configuration Header/Toggle */}
+            <div className="border-b border-slate-800 bg-slate-900/50">
+                <button
+                    onClick={() => setShowConfig(!showConfig)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-xs font-medium text-slate-400 hover:text-cyan-400 hover:bg-slate-800/50 transition-colors"
+                >
+                    <div className="flex items-center gap-2">
+                        <Settings2 className="w-4 h-4" />
+                        <span>ANALYSIS CONFIGURATION</span>
+                    </div>
+                    {showConfig ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+            </div>
+
+            {/* Config Panel */}
+            <div className={clsx(
+                "bg-slate-950/50 border-b border-slate-800 transition-all duration-300 overflow-hidden",
+                showConfig ? "max-h-96 opacity-100 p-6" : "max-h-0 opacity-0 p-0"
+            )}>
+                <div className="space-y-6">
+                    <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Case Context</label>
+                        <textarea
+                            value={caseContext}
+                            onChange={(e) => setCaseContext(e.target.value)}
+                            placeholder="e.g. This evidence relates to a cyber-attack on 12/25. Look for suspicious IP addresses..."
+                            className="w-full h-24 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:ring-1 focus:ring-cyan-500 outline-none resize-none placeholder:text-slate-600"
+                        />
+                        <p className="text-[10px] text-slate-600">Provide background info to help the AI understand the evidence relevance.</p>
+                    </div>
+                </div>
+            </div>
             <input
                 type="file"
                 multiple
