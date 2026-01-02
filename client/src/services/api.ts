@@ -10,7 +10,8 @@ const getAuthToken = async () => {
     return null;
 };
 
-export const uploadBundle = async (files: File[], metadata: any) => {
+// Phase 1: Transient Analysis
+export const analyzeEvidence = async (files: File[], metadata: any) => {
     const formData = new FormData();
     files.forEach(f => formData.append('files', f));
     formData.append('metadata', JSON.stringify(metadata));
@@ -18,7 +19,20 @@ export const uploadBundle = async (files: File[], metadata: any) => {
     const token = await getAuthToken();
     const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
 
-    const response = await axios.post(`${API_URL}/process-bundle`, formData, config);
+    const response = await axios.post(`${API_URL}/analyze`, formData, config);
+    return response.data;
+};
+
+// Phase 2: Persistent Save
+export const saveCase = async (files: File[], timeline: any) => {
+    const formData = new FormData();
+    files.forEach(f => formData.append('files', f));
+    formData.append('timeline', JSON.stringify(timeline));
+
+    const token = await getAuthToken();
+    const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+
+    const response = await axios.post(`${API_URL}/cases`, formData, config);
     return response.data;
 };
 
@@ -30,10 +44,27 @@ export const getCase = async (id: string) => {
     return response.data;
 };
 
-export const listCases = async (page = 1, limit = 9) => {
+export const listCases = async (page = 1, limit = 9, search = '', sortBy = 'date', order = 'desc') => {
     const token = await getAuthToken();
     const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-    const response = await axios.get(`${API_URL}/cases?page=${page}&limit=${limit}`, config);
+    const response = await axios.get(`${API_URL}/cases`, {
+        ...config,
+        params: { page, limit, search, sortBy, order }
+    });
+    return response.data;
+};
+
+export const deleteCase = async (id: string) => {
+    const token = await getAuthToken();
+    const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+    const response = await axios.delete(`${API_URL}/cases/${id}`, config);
+    return response.data;
+};
+
+export const deleteAccount = async () => {
+    const token = await getAuthToken();
+    const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+    const response = await axios.delete(`${API_URL}/account`, config);
     return response.data;
 };
 

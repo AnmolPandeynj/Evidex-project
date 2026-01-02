@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { type User, onAuthStateChanged, signOut } from 'firebase/auth';
+import { type User, onAuthStateChanged, signOut, sendPasswordResetEmail } from 'firebase/auth'; // Import sendPasswordResetEmail
 import { auth } from '../firebaseConfig';
 import { syncUserInfo } from '../services/api';
 
@@ -7,6 +7,7 @@ interface AuthContextType {
     currentUser: User | null;
     loading: boolean;
     logout: () => Promise<void>;
+    resetPassword: (email: string) => Promise<void>; // Add type
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -41,10 +42,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return signOut(auth);
     };
 
+    const resetPassword = (email: string) => {
+        return sendPasswordResetEmail(auth, email);
+    };
+
     const value = {
         currentUser,
         loading,
-        logout
+        logout,
+        resetPassword
     };
 
     return (

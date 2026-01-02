@@ -21,14 +21,7 @@ import apiRoutes from './routes/api';
 app.use(cors());
 app.use(express.json());
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Serve static files from uploads directory
-app.use('/uploads', express.static(uploadsDir));
+// Local uploads directory logic removed (Migrated to GCS)
 
 app.use('/api', apiRoutes);
 

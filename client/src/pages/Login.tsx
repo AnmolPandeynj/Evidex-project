@@ -25,7 +25,7 @@ export function Login() {
                 setError('Please verify your email address to log in. Check your inbox.');
             } else {
                 await syncUserInfo(); // Explicit sync on login
-                navigate('/');
+                navigate('/dashboard');
             }
         } catch (err: any) {
             setError('Failed to log in: ' + err.message);

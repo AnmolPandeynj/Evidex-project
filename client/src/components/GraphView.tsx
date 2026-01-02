@@ -12,6 +12,9 @@ export interface GraphViewHandle {
 }
 
 export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(({ events, relations }, ref) => {
+    // Guard Clause
+    if (!events || !Array.isArray(events)) return <div className="text-slate-500 text-center p-10">No graph data.</div>;
+
     const containerRef = useRef<HTMLDivElement>(null);
     const cyRef = useRef<cytoscape.Core | null>(null);
 
@@ -326,7 +329,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(({ events, 
                     timestamp: new Date(e.timestamp).toLocaleString(),
                     confidence: e.confidence,
                     // Ensure we have a valid absolute URL for the image
-                    imageUrl: e.source_file.startsWith('http')
+                    imageUrl: (e.source_file.startsWith('http') || e.source_file.startsWith('blob:'))
                         ? e.source_file
                         : `http://localhost:5000/uploads/${e.source_file}`
                 }

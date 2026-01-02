@@ -23,6 +23,11 @@ interface TimelineViewProps {
 
 export const TimelineView: React.FC<TimelineViewProps> = ({ events, relations }) => {
 
+    // Guard against missing data
+    if (!events || !Array.isArray(events)) {
+        return <div className="text-slate-500 text-center p-8">No timeline data available.</div>;
+    }
+
     // Group events into chains
     const groupedChains = useMemo(() => {
         const n = events.length;
@@ -124,7 +129,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ events, relations })
                                 {/* Image and Source */}
                                 <div className="mb-3 rounded-lg overflow-hidden border border-slate-700/50 relative group/img h-40 bg-slate-900/50">
                                     <img
-                                        src={event.source_file.startsWith('http') ? event.source_file : `http://localhost:5000/uploads/${event.source_file}`}
+                                        src={(event.source_file.startsWith('http') || event.source_file.startsWith('blob:')) ? event.source_file : `http://localhost:5000/uploads/${event.source_file}`}
                                         alt="Evidence"
                                         onError={(e) => {
                                             (e.target as HTMLImageElement).src = "https://placehold.co/600x400/1e293b/ef4444?text=Image+Not+Found";

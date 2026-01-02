@@ -17,7 +17,7 @@ export default function PrivateRoute({ children }: { children: React.ReactNode }
     }
 
     if (!currentUser) {
-        return <Navigate to="/login" />;
+        return <Navigate to="/" />;
     }
 
     if (!currentUser.emailVerified) {

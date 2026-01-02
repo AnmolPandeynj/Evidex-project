@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { FileUpload } from '../components/FileUpload';
 import { TimelineView } from '../components/TimelineView';
 import { GraphView } from '../components/GraphView';
-import { uploadBundle, getCase } from '../services/api';
-import { AlertTriangle, Fingerprint, Shield, Zap, Search, LogOut, Loader2, Settings, PlusCircle, CheckCircle2, Lightbulb } from 'lucide-react'; // Added icons
+import { analyzeEvidence, saveCase, getCase, deleteCase, deleteAccount } from '../services/api';
+import { AlertTriangle, Fingerprint, Shield, Zap, Search, LogOut, Loader2, Settings, PlusCircle, CheckCircle2, Lightbulb, FolderOpen, Calendar, FileText, Trash2, KeyRound, AlertOctagon } from 'lucide-react'; // Added icons
 import jsPDF from 'jspdf';
 import { useAuth } from '../context/AuthContext'; // Import useAuth
 
@@ -12,9 +12,42 @@ export default function Dashboard() { // Renamed App to Dashboard
     const [caseData, setCaseData] = useState<any>(null);
     const [error, setError] = useState<string>('');
     const [generatingPdf, setGeneratingPdf] = useState(false);
-    const { logout, currentUser } = useAuth(); // Use auth
+    const { logout, currentUser, resetPassword } = useAuth(); // Use auth
     const [loadingCase, setLoadingCase] = useState(true);
-    const [showSettings, setShowSettings] = useState(false);
+    const [showSettings, setShowSettings] = useState(false); // State for settings dropdown
+    const [stagedFiles, setStagedFiles] = useState<File[]>([]); // New: Hold files for Phase 2 Save
+    const [isDraft, setIsDraft] = useState(false); // New: Track if case is unsaved
+
+    const handleDeleteAccount = async () => {
+        if (window.confirm("CRITICAL WARNING: Are you sure you want to DELETE YOUR ACCOUNT? This will permanently delete ALL your cases, uploaded evidence, and user data. This action CANNOT be undone.")) {
+            try {
+                // Second confirmation for safety
+                if (window.confirm("Please confirm again: DELETE EVERYTHING?")) {
+                    setLoadingCase(true);
+                    await deleteAccount();
+                    await logout();
+                    navigate('/login');
+                }
+            } catch (error) {
+                console.error("Account deletion failed:", error);
+                alert("Failed to delete account. Please try again.");
+                setLoadingCase(false);
+            }
+        }
+    };
+
+    const handlePasswordReset = async () => {
+        if (currentUser?.email) {
+            try {
+                await resetPassword(currentUser.email);
+                alert(`Password reset email sent to ${currentUser.email}`);
+            } catch (error) {
+                console.error("Password reset failed:", error);
+                alert("Failed to send password reset email.");
+            }
+        }
+    };
+    const [showPdfSettings, setShowPdfSettings] = useState(false);
     const [includePdfImages, setIncludePdfImages] = useState(true);
     const [pdfImageScale, setPdfImageScale] = useState<number>(1.0); // 1.0 = 100%
     const navigate = useNavigate();
@@ -42,14 +75,71 @@ export default function Dashboard() { // Renamed App to Dashboard
         try {
             setError('');
             setCaseData(null);
-            const result = await uploadBundle(files, metadata);
+            setStagedFiles([]);
+            setIsDraft(false);
+
+            // Phase 1: Transient Analysis
+            const result = await analyzeEvidence(files, metadata);
+
             if (result.success) {
-                setCaseData(result.case);
-                // PERSIST: Save ID to local storage
-                localStorage.setItem('active_case_id', result.caseId);
+                // INJECT LOCAL PREVIEWS: Map filenames to local Object URLs
+                const localTimeline = result.analysis;
+
+                // Create map of filename -> Blob URL
+                const urlMap = new Map();
+                const normalize = (name: string) => name.toLowerCase().trim();
+
+                files.forEach(f => {
+                    urlMap.set(f.name, URL.createObjectURL(f));
+                    urlMap.set(normalize(f.name), URL.createObjectURL(f));
+                });
+
+                // Update events with local URLs for preview
+                if (localTimeline.events) {
+                    localTimeline.events = localTimeline.events.map((evt: any) => {
+                        const originalName = evt.source_file;
+                        // 1. Exact Match
+                        if (urlMap.has(originalName)) return { ...evt, source_file: urlMap.get(originalName) };
+
+                        // 2. Normalized Match
+                        if (urlMap.has(normalize(originalName))) return { ...evt, source_file: urlMap.get(normalize(originalName)) };
+
+                        // 3. Fallback: Try to find a file that 'contains' the source_file (if AI shortened it)
+                        const partialMatch = files.find(f => f.name.includes(originalName) || originalName.includes(f.name));
+                        if (partialMatch) return { ...evt, source_file: URL.createObjectURL(partialMatch) };
+
+                        return evt;
+                    });
+                }
+
+                setCaseData({ timeline: localTimeline }); // Show preview with local blobs
+                setStagedFiles(files); // Keep files ready for saving
+                setIsDraft(true); // Mark as draft/unsaved
             }
         } catch (err: any) {
-            setError(err.response?.data?.error || "Upload failed. Check backend connection.");
+            setError(err.response?.data?.error || "Analysis failed. Check your file count or backend connection.");
+        }
+    };
+
+    const handleSaveCase = async () => {
+        if (!caseData || !stagedFiles.length) return;
+
+        try {
+            setLoadingCase(true); // Show saving indicator (reuse loading state or new one)
+            const result = await saveCase(stagedFiles, caseData.timeline);
+
+            if (result.success) {
+                setCaseData(result.case); // Update with full DB object
+                localStorage.setItem('active_case_id', result.caseId);
+                setStagedFiles([]); // Clear staged files
+                setIsDraft(false); // No longer draft
+                alert("Case saved securely to the cloud.");
+            }
+        } catch (err: any) {
+            console.error("Save failed:", err);
+            alert(`Failed to save case: ${err.response?.data?.error || "Unknown Error"}`);
+        } finally {
+            setLoadingCase(false);
         }
     };
 
@@ -61,6 +151,25 @@ export default function Dashboard() { // Renamed App to Dashboard
         setCaseData(null);
         localStorage.removeItem('active_case_id');
         setError('');
+    };
+
+    const handleDeleteCase = async () => {
+        if (!caseData || !caseData._id) return;
+
+        if (window.confirm("ARE YOU SURE you want to delete this case? This action is PERMANENT and cannot be undone.")) {
+            try {
+                setLoadingCase(true);
+                await deleteCase(caseData._id);
+                setCaseData(null);
+                localStorage.removeItem('active_case_id');
+                setLoadingCase(false); // Fix: Stop loading indicator
+                window.alert("Case deleted successfully.");
+            } catch (err) {
+                console.error("Delete failed:", err);
+                window.alert("Failed to delete case.");
+                setLoadingCase(false);
+            }
+        }
     };
 
     const graphRef = useRef<any>(null); // Use a ref to access GraphView methods
@@ -232,45 +341,76 @@ export default function Dashboard() { // Renamed App to Dashboard
                     let totalEventHeight = 25 + descHeight + 5;
 
                     // Check for image to embed
-                    let imgData: HTMLImageElement | null = null;
+                    let imgData: any = null;
                     let imgHeight = 0;
                     let imgWidth = 0;
 
-                    const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(event.source_file);
-
-                    if (includePdfImages && isImage) {
+                    // Always try to load if enabled (we'll validate MIME type)
+                    if (includePdfImages) {
                         try {
-                            const imageUrl = event.source_file.startsWith('http')
+                            const imageUrl = (event.source_file.startsWith('http') || event.source_file.startsWith('blob:'))
                                 ? event.source_file
                                 : `http://localhost:5000/uploads/${event.source_file}`;
 
-                            // Helper to load image
-                            const loadImage = (url: string): Promise<HTMLImageElement> => {
+                            // Helper to load image as Base64 (Robust for Blobs and URLs)
+                            const getImageData = async (url: string): Promise<{ data: string, width: number, height: number, format: string } | null> => {
+                                // console.log(`[PDF] Fetching image: ${url}`);
+                                const response = await fetch(url, { mode: 'cors' }); // Ensure CORS
+                                if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
+
+                                const blob = await response.blob();
+                                if (blob.size === 0) throw new Error("Empty blob returned");
+
+                                // VALIDATE MIME TYPE
+                                if (!blob.type.startsWith('image/')) {
+                                    // Not an image (e.g. PDF, doc), skip silently
+                                    return null;
+                                }
+
+                                // Detect Format
+                                let format = 'JPEG';
+                                if (blob.type === 'image/png') format = 'PNG';
+                                else if (blob.type === 'image/webp') format = 'JPEG';
+
                                 return new Promise((resolve, reject) => {
-                                    const img = new Image();
-                                    img.crossOrigin = "Anonymous";
-                                    img.onload = () => resolve(img);
-                                    img.onerror = reject;
-                                    img.src = url;
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                        const base64data = reader.result as string;
+
+                                        const img = new Image();
+                                        img.onload = () => {
+                                            resolve({ data: base64data, width: img.width, height: img.height, format });
+                                        };
+                                        img.onerror = () => reject(new Error("Failed to load Base64 into Image object"));
+                                        img.src = base64data;
+                                    };
+                                    reader.onerror = reject;
+                                    reader.readAsDataURL(blob);
                                 });
                             };
 
-                            imgData = await loadImage(imageUrl);
+                            const imgInfo = await getImageData(imageUrl);
 
-                            // Calc dimensions relative to page width and user preference
-                            const maxAvailableWidth = (pageWidth - 50); // full width minus margins
-                            const targetWidth = maxAvailableWidth * pdfImageScale;
+                            if (imgInfo) {
+                                // Calc dimensions relative to page width and user preference
+                                const maxAvailableWidth = (pageWidth - 50); // full width minus margins
+                                const targetWidth = maxAvailableWidth * pdfImageScale;
 
-                            // Calculate aspect ratio
-                            const aspectRatio = imgData.width / imgData.height;
+                                // Calculate aspect ratio
+                                const aspectRatio = imgInfo.width / imgInfo.height;
 
-                            imgWidth = targetWidth;
-                            imgHeight = imgWidth / aspectRatio;
+                                imgWidth = targetWidth;
+                                imgHeight = imgWidth / aspectRatio;
 
-                            totalEventHeight += imgHeight + 5;
+                                totalEventHeight += imgHeight + 5;
 
-                        } catch (err) {
-                            console.warn("Failed to load image for PDF:", event.source_file);
+                                // Store for rendering loop
+                                imgData = imgInfo;
+                            }
+
+                        } catch (err: any) {
+                            // Suppress errors for non-images or network issues to ensure PDF still generates
+                            console.warn("Skipping PDF image:", event.source_file);
                         }
                     }
 
@@ -322,8 +462,8 @@ export default function Dashboard() { // Renamed App to Dashboard
                         doc.setFillColor(248, 250, 252); // Slate-50
                         doc.rect(28, currentY, imgWidth + 2, imgHeight + 2, 'FD');
 
-                        // Image
-                        doc.addImage(imgData, 'JPEG', 29, currentY + 1, imgWidth, imgHeight);
+                        // Image (Pass the Base64 data and format)
+                        doc.addImage((imgData as any).data, (imgData as any).format, 29, currentY + 1, imgWidth, imgHeight);
                         currentY += imgHeight + 5;
                     }
 
@@ -463,7 +603,10 @@ export default function Dashboard() { // Renamed App to Dashboard
             {/* Navbar */}
             <nav className="fixed w-full z-50 transition-all duration-300 bg-slate-950/80 backdrop-blur-md border-b border-slate-800">
                 <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                    <div
+                        className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => navigate('/')}
+                    >
                         <div className="p-2 bg-gradient-to-tr from-cyan-500 to-blue-600 rounded-lg shadow-lg shadow-cyan-500/20">
                             <Fingerprint className="w-5 h-5 text-white" />
                         </div>
@@ -498,23 +641,6 @@ export default function Dashboard() { // Renamed App to Dashboard
                             My Archive
                         </button>
 
-                        {/* User Info & Logout */}
-                        <div className="flex items-center gap-4 border-r border-slate-800 pr-4 mr-1">
-                            <span className="text-sm text-slate-400 hidden sm:block">
-                                {currentUser?.email}
-                            </span>
-                            <button
-                                onClick={() => {
-                                    localStorage.removeItem('active_case_id');
-                                    logout();
-                                }}
-                                className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-red-400 transition-colors"
-                                title="Sign Out"
-                            >
-                                <LogOut className="w-4 h-4" />
-                            </button>
-                        </div>
-
                         {caseData && (
                             <button
                                 onClick={() => handleExportPdf(false)}
@@ -526,18 +652,18 @@ export default function Dashboard() { // Renamed App to Dashboard
                             </button>
                         )}
 
-                        {/* Settings Button */}
+
                         <div className="relative mr-2">
                             <button
-                                onClick={() => setShowSettings(!showSettings)}
+                                onClick={() => setShowPdfSettings(!showPdfSettings)}
                                 className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
-                                title="Settings"
+                                title="Report Settings"
                             >
                                 <Settings className="w-4 h-4" />
                             </button>
 
                             {/* Dropdown */}
-                            {showSettings && (
+                            {showPdfSettings && (
                                 <div className="absolute top-12 right-0 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95 duration-200">
                                     <div className="flex items-center gap-2 mb-4 border-b border-slate-800 pb-2">
                                         <Settings className="w-4 h-4 text-cyan-500" />
@@ -583,9 +709,109 @@ export default function Dashboard() { // Renamed App to Dashboard
                             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                             <span className="text-xs font-mono text-slate-400">SYSTEM SECURE</span>
                         </div>
+
+                        {/* User Profile & Settings */}
+                        <div className="flex items-center gap-4 pl-6 ml-4 border-l border-slate-800/50 relative group">
+
+                            {/* User Info Block (Hidden on mobile) */}
+                            <div className="text-right hidden md:block">
+                                <div className="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors">
+                                    {currentUser?.email}
+                                </div>
+                                <div className="flex justify-end mt-0.5">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 bg-cyan-950/30 border border-cyan-900/50 px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(34,211,238,0.1)]">
+                                        Investigator
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Settings Dropdown Trigger (Avatar) */}
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowSettings(!showSettings)}
+                                    className={`relative w-10 h-10 rounded-full transition-all duration-300 ${showSettings
+                                        ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-slate-950 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
+                                        : 'hover:ring-2 hover:ring-slate-700 hover:ring-offset-1 hover:ring-offset-slate-950'
+                                        }`}
+                                >
+                                    {/* Gradient Avatar */}
+                                    <div className="w-full h-full rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-sm shadow-inner">
+                                        {currentUser?.email?.charAt(0).toUpperCase() || 'U'}
+                                    </div>
+                                </button>
+
+                                {/* Dropdown Menu */}
+                                {showSettings && (
+                                    <div className="absolute right-0 top-full mt-3 w-72 bg-slate-900/95 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200 origin-top-right ring-1 ring-white/5">
+
+                                        {/* Header */}
+                                        <div className="p-4 border-b border-white/5 bg-gradient-to-r from-slate-900 via-slate-900 to-slate-800/50">
+                                            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                                                <div className="p-1 rounded bg-purple-500/10 border border-purple-500/20">
+                                                    <Shield className="w-3.5 h-3.5 text-purple-400" />
+                                                </div>
+                                                Account & Security
+                                            </h3>
+                                        </div>
+
+                                        {/* Options */}
+                                        <div className="p-2 space-y-1">
+                                            <button
+                                                onClick={handlePasswordReset}
+                                                className="w-full flex items-center gap-3 px-3 py-3 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-all group border border-transparent hover:border-white/5"
+                                            >
+                                                <div className="p-2 rounded-lg bg-slate-800 text-slate-400 group-hover:bg-purple-500/20 group-hover:text-purple-300 transition-colors shadow-sm">
+                                                    <KeyRound className="w-4 h-4" />
+                                                </div>
+                                                <div className="flex flex-col items-start">
+                                                    <div className="font-medium group-hover:text-purple-200 transition-colors">Change Password</div>
+                                                    <div className="text-[11px] text-slate-500 group-hover:text-slate-400">Send reset link to email</div>
+                                                </div>
+                                            </button>
+
+                                            <div className="h-px bg-gradient-to-r from-transparent via-slate-700 to-transparent my-1 mx-4"></div>
+
+                                            <button
+                                                onClick={handleDeleteAccount}
+                                                className="w-full flex items-center gap-3 px-3 py-3 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition-all group border border-transparent hover:border-red-500/10"
+                                            >
+                                                <div className="p-2 rounded-lg bg-red-950/30 text-red-500 group-hover:bg-red-500/20 group-hover:text-red-400 transition-colors shadow-sm">
+                                                    <AlertOctagon className="w-4 h-4" />
+                                                </div>
+                                                <div className="flex flex-col items-start">
+                                                    <div className="font-medium">Delete Account</div>
+                                                    <div className="text-[11px] text-red-500/60 group-hover:text-red-400/80">Permanently wipe all data</div>
+                                                </div>
+                                            </button>
+                                        </div>
+
+                                        {/* Footer (Sign Out) */}
+                                        <div className="p-2 border-t border-white/5 bg-slate-950/50">
+                                            <button
+                                                onClick={async () => {
+                                                    try {
+                                                        await logout();
+                                                        navigate('/');
+                                                    } catch { /* ignore */ }
+                                                }}
+                                                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                                            >
+                                                <LogOut className="w-3.5 h-3.5" />
+                                                Sign Out
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Backdrop to close settings when clicking outside */}
+                                {showSettings && (
+                                    <div className="fixed inset-0 z-40 bg-transparent" onClick={() => setShowSettings(false)}></div>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </nav>
+                </div >
+            </nav >
 
             <main className="pt-24 pb-12 max-w-7xl mx-auto px-6 space-y-16">
 
@@ -629,6 +855,83 @@ export default function Dashboard() { // Renamed App to Dashboard
                 {caseData && (
                     <section className="animate-in fade-in slide-in-from-bottom-12 duration-1000 space-y-8">
 
+                        {/* Case Metadata Header */}
+                        <div className="relative bg-slate-900/80 backdrop-blur-xl border border-purple-500/20 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 overflow-hidden shadow-2xl shadow-purple-900/20 group">
+
+                            {/* Dynamic Background Glows */}
+                            <div className="absolute top-0 right-0 w-96 h-96 bg-purple-600/20 rounded-full blur-[100px] -mr-20 -mt-20 pointer-events-none opacity-40 group-hover:opacity-60 transition-opacity duration-1000"></div>
+                            <div className="absolute bottom-0 left-0 w-64 h-64 bg-fuchsia-600/20 rounded-full blur-[80px] -ml-10 -mb-10 pointer-events-none opacity-40"></div>
+
+                            {/* Left Section: Icon & Info */}
+                            <div className="flex items-center gap-6 z-10 w-full md:w-auto">
+                                {/* Icon Box */}
+                                <div className="relative flex-shrink-0">
+                                    <div className="absolute -inset-0.5 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl blur opacity-40 group-hover:opacity-70 transition duration-500"></div>
+                                    <div className="relative p-4 bg-slate-950 border border-slate-800 rounded-xl shadow-inner flex items-center justify-center">
+                                        <FolderOpen className="w-8 h-8 text-purple-400 drop-shadow-[0_0_8px_rgba(192,132,252,0.5)]" />
+                                    </div>
+                                </div>
+
+                                {/* Info */}
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex items-center gap-3">
+                                        <h2 className="text-3xl font-bold text-white tracking-tight leading-none">
+                                            CASE <span className="text-cyan-400">#{caseData._id?.slice(-6).toUpperCase() || "UNKNOWN"}</span>
+                                        </h2>
+                                        <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-800/50 border border-slate-700/50 text-[10px] font-mono text-cyan-500/80 tracking-wide">
+                                            <Shield className="w-3 h-3" />
+                                            SHA-256 VERIFIED
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-4 text-xs font-medium text-slate-400 mt-1">
+                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-800/30 border border-slate-800/50">
+                                            <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                                            {caseData.createdAt ? new Date(caseData.createdAt).toLocaleDateString(undefined, { dateStyle: 'long' }) : "Unsaved Draft"}
+                                        </div>
+                                        {isDraft && (
+                                            <button
+                                                onClick={handleSaveCase}
+                                                className="cursor-pointer px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full text-xs font-bold transition-all duration-300 shadow-lg shadow-emerald-900/50 hover:shadow-emerald-500/40 hover:scale-105 active:scale-95 flex items-center gap-2 animate-pulse hover:animate-none"
+                                            >
+                                                <Shield className="w-3 h-3" />
+                                                SAVE CASE TO CLOUD
+                                            </button>
+                                        )}
+
+                                        <div className="w-1 h-1 bg-slate-600 rounded-full"></div>
+                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-800/30 border border-slate-800/50">
+                                            <FileText className="w-3.5 h-3.5 text-slate-500" />
+                                            <span className="text-slate-200">{caseData.files?.length || 0}</span> Evidence Files
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right Section: Status Indicator & Actions */}
+                            <div className="flex items-center gap-6 z-10 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 border-slate-800/50 pt-4 md:pt-0 pl-0 md:pl-8 md:border-l md:border-slate-800/50">
+
+                                <button
+                                    onClick={handleDeleteCase}
+                                    className="group/del flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-950/30 border border-red-900/50 hover:bg-red-900/40 hover:border-red-500/50 transition-all duration-300"
+                                    title="Delete Case Permanently"
+                                >
+                                    <Trash2 className="w-4 h-4 text-red-500 group-hover/del:text-red-400 transition-colors" />
+                                    <span className="text-xs font-medium text-red-400 group-hover/del:text-red-300 hidden sm:block">Delete</span>
+                                </button>
+
+                                <div className="flex flex-col items-end">
+                                    <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-0.5">Current Status</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm font-semibold text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]">Analysis Active</span>
+                                    </div>
+                                </div>
+                                <div className="relative flex h-4 w-4">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-4 w-4 bg-gradient-to-tr from-emerald-400 to-teal-500 shadow-lg shadow-emerald-500/40"></span>
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
                             {/* Timeline Column */}
@@ -641,7 +944,7 @@ export default function Dashboard() { // Renamed App to Dashboard
                                 </div>
 
                                 <div id="timeline-export-container" className="glass-card rounded-2xl p-2 overflow-hidden min-h-[500px]">
-                                    <TimelineView events={caseData.timeline.events} relations={caseData.timeline.relations} />
+                                    <TimelineView events={caseData.timeline?.events || []} relations={caseData.timeline?.relations || []} />
                                 </div>
                             </div>
 
@@ -655,20 +958,20 @@ export default function Dashboard() { // Renamed App to Dashboard
                                 </div>
 
                                 <div id="graph-export-container" className="glass-card rounded-2xl p-1 h-[400px]">
-                                    <GraphView ref={graphRef} events={caseData.timeline.events} relations={caseData.timeline.relations} />
+                                    <GraphView ref={graphRef} events={caseData.timeline?.events || []} relations={caseData.timeline?.relations || []} />
                                 </div>
 
                                 <div className="glass-panel p-6 rounded-2xl">
                                     <h4 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-3">AI Case Summary</h4>
                                     <p className="text-slate-300 leading-relaxed text-sm">
-                                        {caseData.timeline.summary.short}
+                                        {caseData.timeline?.summary?.short || "No summary available."}
                                     </p>
                                 </div>
                             </div>
                         </div>
 
                         {/* FINAL VERDICT SECTION */}
-                        {caseData.timeline.verdict && (
+                        {caseData.timeline?.verdict && (
                             <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300">
                                 <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-purple-950/40 to-slate-950 border border-purple-500/20 shadow-2xl shadow-purple-900/10">
                                     {/* Ornamental glow & Tech lines */}

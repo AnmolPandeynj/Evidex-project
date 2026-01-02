@@ -1,58 +1,90 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { Storage } from "@google-cloud/storage";
 import fs from 'fs';
 import path from 'path';
 
-// Initialize S3 Client (works for Cloudflare R2 too)
-const s3 = new S3Client({
-    region: process.env.AWS_REGION || "auto",
-    endpoint: process.env.AWS_ENDPOINT, // Required for R2
+// Initialize GCS Storage
+// We point to the service account key file we just created.
+const serviceAccount = JSON.parse(fs.readFileSync(path.join(__dirname, '../../evidex-service-account.json'), 'utf-8'));
+
+const storage = new Storage({
+    projectId: serviceAccount.project_id,
     credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-    },
+        client_email: serviceAccount.client_email,
+        private_key: serviceAccount.private_key, // Use raw key (Node handles newlines in JSON parse)
+    }
 });
 
-export const uploadFile = async (file: Express.Multer.File): Promise<string> => {
-    // If AWS credentials are NOT provided, use local storage
-    if (!process.env.AWS_ACCESS_KEY_ID) {
-        const uploadsDir = path.join(__dirname, '../../uploads');
-        if (!fs.existsSync(uploadsDir)) {
-            fs.mkdirSync(uploadsDir, { recursive: true });
-        }
+const bucketName = process.env.GCS_BUCKET_NAME || 'evidex-media-bucket';
 
-        const fileKey = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-        const filePath = path.join(uploadsDir, fileKey);
-
-        fs.writeFileSync(filePath, file.buffer);
-
-        // Return local URL
-        const port = process.env.PORT || 5000;
-        return `http://localhost:${port}/uploads/${fileKey}`;
-    }
-
-    if (!process.env.AWS_BUCKET_NAME) {
-        throw new Error("AWS_BUCKET_NAME is not defined in .env");
-    }
-
-    const fileKey = `${Date.now()}-${file.originalname}`;
-
+// Debug: Verify connection and bucket existence
+const verifyConnection = async () => {
     try {
-        const command = new PutObjectCommand({
-            Bucket: process.env.AWS_BUCKET_NAME,
-            Key: fileKey,
-            Body: file.buffer, // Buffer from memory storage
-            ContentType: file.mimetype,
+        console.log("Verifying GCS Connection...");
+        const [buckets] = await storage.getBuckets();
+        console.log("Connected! Available Buckets:", buckets.map(b => b.name));
+
+        const bucket = storage.bucket(bucketName);
+        const [exists] = await bucket.exists();
+        if (!exists) {
+            console.error(`CRITICAL: Bucket '${bucketName}' does not exist!`);
+        } else {
+            console.log(`Bucket '${bucketName}' exists and is accessible.`);
+        }
+    } catch (err: any) {
+        console.error("GCS Connection FAILED:", err.message);
+        if (err.message.includes("DECODER")) {
+            console.error("Hint: Private Key decoding failed. Check newline formatting.");
+        }
+    }
+};
+verifyConnection();
+
+export const uploadFile = async (file: Express.Multer.File): Promise<{ url: string; key: string }> => {
+    try {
+        const bucket = storage.bucket(bucketName);
+        const fileKey = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+        const blob = bucket.file(fileKey);
+
+        return new Promise((resolve, reject) => {
+            blob.save(file.buffer, {
+                metadata: { contentType: file.mimetype },
+                resumable: false
+            }, async (err) => {
+                if (err) {
+                    console.error("GCS Upload Error:", err);
+                    return reject(err);
+                }
+
+                try {
+                    // Generate a Signed URL (Get Read Access)
+                    // Max duration for V4 signing is 7 days (604800 seconds).
+                    const [url] = await blob.getSignedUrl({
+                        action: 'read',
+                        expires: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days from now
+                    });
+
+                    resolve({ url, key: fileKey });
+                } catch (signErr) {
+                    console.error("Error signing URL:", signErr);
+                    reject(signErr);
+                }
+            });
         });
 
-        await s3.send(command);
-
-        // Return public URL (assuming public bucket or presigned logic needed later)
-        // For R2/S3, usually: https://bucket.endpoint/key
-        // For now returning a constructed URL based on assumption
-        const endpoint = process.env.AWS_PUBLIC_ENDPOINT || process.env.AWS_ENDPOINT;
-        return `${endpoint}/${fileKey}`;
     } catch (error) {
-        console.error("S3 Upload Error:", error);
-        throw new Error("Failed to upload file to storage.");
+        console.error("GCS Service Error:", error);
+        throw new Error("Failed to upload file to Google Cloud Storage.");
+    }
+};
+
+export const deleteFile = async (fileKey: string): Promise<void> => {
+    try {
+        const bucket = storage.bucket(bucketName);
+        const file = bucket.file(fileKey);
+        await file.delete();
+        console.log(`Deleted GCS file: ${fileKey}`);
+    } catch (error: any) {
+        console.error(`Failed to delete GCS file ${fileKey}:`, error.message);
+        // We do not throw here to avoid preventing case deletion if file is already gone
     }
 };
